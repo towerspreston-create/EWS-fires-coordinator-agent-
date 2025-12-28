@@ -674,6 +674,220 @@ def create_agm_excel(hptl_data: dict) -> BytesIO:
 
 
 # =============================================================================
+# OPORD/ANNEX PARSING
+# =============================================================================
+
+OPORD_PARSE_PROMPT = """You are parsing a military Operations Order (OPORD), Annex C (Fires), Appendix 17 (Fire Support), or similar fire support planning document.
+
+Extract all fire support relevant information and return it as a JSON object. Focus on:
+
+{
+    "document_info": {
+        "title": "Document title/name",
+        "dtg": "Date-time group if present",
+        "classification": "UNCLASSIFIED/etc",
+        "unit": "Issuing unit"
+    },
+    "fscms": {
+        "nfas": [{"name": "NFA 1", "grid": "grid reference", "description": "purpose/details"}],
+        "rfas": [{"name": "RFA 1", "grid": "grid reference", "restrictions": "what restrictions apply"}],
+        "cfls": [{"name": "CFL", "location": "description", "effective": "when effective"}],
+        "fpls": [{"name": "FPL 1", "grid": "grid reference", "unit": "responsible unit"}],
+        "other": [{"type": "FSCM type", "name": "name", "details": "details"}]
+    },
+    "priority_of_fires": [
+        "First priority unit/mission",
+        "Second priority unit/mission"
+    ],
+    "fire_support_tasks": [
+        {"phase": "Phase I", "task": "Support the advance...", "assets": "1/11 FA"},
+        {"phase": "Phase II", "task": "...", "assets": "..."}
+    ],
+    "coordinating_instructions": [
+        "All fires must be cleared through FSC",
+        "Excalibur use requires BN CDR approval",
+        "..."
+    ],
+    "ammunition_guidance": {
+        "csr": "Controlled Supply Rate info if present",
+        "rsr": "Required Supply Rate info if present",
+        "restrictions": ["Any ammo restrictions"]
+    },
+    "available_assets": [
+        {"unit": "1/11 FA", "type": "M777A2", "quantity": "18 tubes", "location": "PA 1234"},
+        {"unit": "HMLA-367", "type": "AH-1Z", "quantity": "6 aircraft", "availability": "On call"}
+    ],
+    "targets": [
+        {"number": "AO0001", "description": "Enemy CP", "grid": "grid ref", "remarks": "priority target"}
+    ],
+    "key_info": "Any other critical fire support information not captured above",
+    "summary": "2-3 sentence summary of the fire support plan"
+}
+
+Return ONLY valid JSON. Use null for sections not found in the document. 
+If the document doesn't appear to be a military fire support document, return: {"error": "Document does not appear to be an OPORD or fire support annex"}
+"""
+
+
+def parse_opord_annex(file) -> dict:
+    """Parse OPORD/Annex document (PDF, DOCX, TXT) using Claude."""
+    try:
+        # Extract text based on file type
+        filename = file.name.lower()
+        
+        if filename.endswith('.pdf'):
+            try:
+                import pypdf
+                pdf_reader = pypdf.PdfReader(file)
+                file_content = "\n".join(page.extract_text() for page in pdf_reader.pages)
+            except ImportError:
+                return {"error": "PDF support requires pypdf library"}
+        
+        elif filename.endswith('.docx'):
+            try:
+                import docx
+                doc = docx.Document(file)
+                file_content = "\n".join(para.text for para in doc.paragraphs)
+            except ImportError:
+                return {"error": "DOCX support requires python-docx library"}
+        
+        elif filename.endswith('.doc'):
+            return {"error": ".doc format not supported. Please convert to .docx or .pdf"}
+        
+        else:  # .txt, .md, or other text
+            file_content = file.read().decode('utf-8')
+        
+        if not file_content or len(file_content.strip()) < 100:
+            return {"error": "Document appears to be empty or too short"}
+        
+        # Use Claude to parse the document
+        client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=4096,
+            system=OPORD_PARSE_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"Parse this fire support document:\n\n{file_content[:15000]}"  # Limit to ~15k chars
+            }]
+        )
+        
+        # Track tokens
+        if hasattr(response, 'usage'):
+            st.session_state.total_tokens += response.usage.input_tokens + response.usage.output_tokens
+        
+        # Extract and parse JSON
+        response_text = response.content[0].text.strip()
+        
+        # Handle markdown code blocks
+        if response_text.startswith("```"):
+            response_text = re.sub(r'^```(?:json)?\n?', '', response_text)
+            response_text = re.sub(r'\n?```$', '', response_text)
+        
+        parsed_data = json.loads(response_text)
+        return parsed_data
+    
+    except json.JSONDecodeError as e:
+        return {"error": f"Failed to parse AI response as JSON: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Failed to parse document: {str(e)}"}
+
+
+def get_opord_context() -> str:
+    """Generate OPORD/Annex context string for system prompt."""
+    if "opord_data" not in st.session_state or not st.session_state.opord_data:
+        return ""
+    
+    data = st.session_state.opord_data
+    lines = ["## OPERATIONS ORDER / FIRE SUPPORT ANNEX\n"]
+    
+    # Document info
+    doc_info = data.get("document_info", {})
+    if doc_info:
+        if doc_info.get("title"):
+            lines.append(f"**Document:** {doc_info['title']}")
+        if doc_info.get("dtg"):
+            lines.append(f"**DTG:** {doc_info['dtg']}")
+        if doc_info.get("unit"):
+            lines.append(f"**Unit:** {doc_info['unit']}")
+        lines.append("")
+    
+    # FSCMs
+    fscms = data.get("fscms", {})
+    if any(fscms.get(k) for k in ["nfas", "rfas", "cfls", "fpls", "other"]):
+        lines.append("### FIRE SUPPORT COORDINATION MEASURES")
+        
+        if fscms.get("nfas"):
+            lines.append("\n**No-Fire Areas (NFAs):**")
+            for nfa in fscms["nfas"]:
+                lines.append(f"- {nfa.get('name', 'NFA')}: {nfa.get('grid', '')} - {nfa.get('description', '')}")
+        
+        if fscms.get("rfas"):
+            lines.append("\n**Restrictive Fire Areas (RFAs):**")
+            for rfa in fscms["rfas"]:
+                lines.append(f"- {rfa.get('name', 'RFA')}: {rfa.get('grid', '')} - {rfa.get('restrictions', '')}")
+        
+        if fscms.get("cfls"):
+            lines.append("\n**Coordinated Fire Lines (CFLs):**")
+            for cfl in fscms["cfls"]:
+                lines.append(f"- {cfl.get('name', 'CFL')}: {cfl.get('location', '')} (Effective: {cfl.get('effective', 'TBD')})")
+        
+        if fscms.get("fpls"):
+            lines.append("\n**Final Protective Lines (FPLs):**")
+            for fpl in fscms["fpls"]:
+                lines.append(f"- {fpl.get('name', 'FPL')}: {fpl.get('grid', '')} - {fpl.get('unit', '')}")
+        lines.append("")
+    
+    # Priority of fires
+    if data.get("priority_of_fires"):
+        lines.append("### PRIORITY OF FIRES")
+        for i, priority in enumerate(data["priority_of_fires"], 1):
+            lines.append(f"{i}. {priority}")
+        lines.append("")
+    
+    # Fire support tasks
+    if data.get("fire_support_tasks"):
+        lines.append("### FIRE SUPPORT TASKS")
+        for task in data["fire_support_tasks"]:
+            lines.append(f"- **{task.get('phase', 'Task')}:** {task.get('task', '')} ({task.get('assets', '')})")
+        lines.append("")
+    
+    # Coordinating instructions
+    if data.get("coordinating_instructions"):
+        lines.append("### COORDINATING INSTRUCTIONS")
+        for instr in data["coordinating_instructions"]:
+            lines.append(f"- {instr}")
+        lines.append("")
+    
+    # Ammunition guidance
+    ammo = data.get("ammunition_guidance", {})
+    if ammo and any(ammo.get(k) for k in ["csr", "rsr", "restrictions"]):
+        lines.append("### AMMUNITION GUIDANCE")
+        if ammo.get("csr"):
+            lines.append(f"- **CSR:** {ammo['csr']}")
+        if ammo.get("rsr"):
+            lines.append(f"- **RSR:** {ammo['rsr']}")
+        if ammo.get("restrictions"):
+            for r in ammo["restrictions"]:
+                lines.append(f"- {r}")
+        lines.append("")
+    
+    # Available assets
+    if data.get("available_assets"):
+        lines.append("### AVAILABLE FIRE SUPPORT ASSETS")
+        for asset in data["available_assets"]:
+            lines.append(f"- {asset.get('unit', '')}: {asset.get('quantity', '')} {asset.get('type', '')} @ {asset.get('location', asset.get('availability', ''))}")
+        lines.append("")
+    
+    # Summary
+    if data.get("summary"):
+        lines.append(f"\n**Summary:** {data['summary']}")
+    
+    return "\n".join(lines)
+
+
+# =============================================================================
 # SESSION STATE INITIALIZATION
 # =============================================================================
 
@@ -693,6 +907,8 @@ def init_session_state():
         st.session_state.tlws_data = []
     if "edl_data" not in st.session_state:
         st.session_state.edl_data = None
+    if "opord_data" not in st.session_state:
+        st.session_state.opord_data = None
     if "adversary" not in st.session_state:
         st.session_state.adversary = "Olvana (Chinese-type)"
 
@@ -711,13 +927,19 @@ def render_sidebar():
         
         upload_type = st.selectbox(
             "Document Type",
-            ["AGM/TSS/HPTL Matrix", "Target List Worksheet", "Equipment Density List"],
+            ["AGM/TSS/HPTL Matrix", "Target List Worksheet", "Equipment Density List", "OPORD/Annex (Fires)"],
             key="upload_type"
         )
         
+        # Set allowed file types based on document type
+        if upload_type == "OPORD/Annex (Fires)":
+            allowed_types = ["pdf", "docx", "doc", "txt", "md"]
+        else:
+            allowed_types = ["xlsx", "xls"]
+        
         uploaded_file = st.file_uploader(
             f"Upload {upload_type}",
-            type=["xlsx", "xls"],
+            type=allowed_types,
             key="doc_uploader"
         )
         
@@ -746,6 +968,14 @@ def render_sidebar():
                         st.success(f"✅ Loaded {len(result)} units")
                     else:
                         st.error(f"Error: {result['error']}")
+                
+                elif upload_type == "OPORD/Annex (Fires)":
+                    result = parse_opord_annex(uploaded_file)
+                    if "error" not in result:
+                        st.session_state.opord_data = result
+                        st.success(f"✅ Parsed fire support annex")
+                    else:
+                        st.error(f"Error: {result['error']}")
         
         # Show loaded documents status
         with st.expander("📋 Loaded Documents", expanded=False):
@@ -765,6 +995,12 @@ def render_sidebar():
                 st.markdown(f"**EDL:** {len(st.session_state.edl_data)} units")
                 if st.button("Clear EDL", key="clear_edl"):
                     st.session_state.edl_data = None
+                    st.rerun()
+            
+            if st.session_state.get("opord_data"):
+                st.markdown(f"**OPORD/Annex:** Loaded")
+                if st.button("Clear OPORD", key="clear_opord"):
+                    st.session_state.opord_data = None
                     st.rerun()
         
         st.markdown("---")
@@ -899,6 +1135,8 @@ def render_data_tabs():
         tab_names.append("🎯 Target List")
     if st.session_state.edl_data:
         tab_names.append("📦 EDL")
+    if st.session_state.get("opord_data"):
+        tab_names.append("📋 OPORD/Annex")
     
     if not tab_names:
         return
@@ -1012,6 +1250,73 @@ def render_data_tabs():
                     with st.expander(f"**{unit}**"):
                         for item, qty in relevant:
                             st.markdown(f"- {item}: **{qty}**")
+        tab_idx += 1
+    
+    # OPORD/Annex Tab
+    if st.session_state.get("opord_data"):
+        with tabs[tab_idx]:
+            data = st.session_state.opord_data
+            
+            st.markdown("### OPORD / Fire Support Annex")
+            
+            # Document info
+            doc_info = data.get("document_info", {})
+            if doc_info:
+                cols = st.columns(3)
+                with cols[0]:
+                    if doc_info.get("title"):
+                        st.markdown(f"**Document:** {doc_info['title']}")
+                with cols[1]:
+                    if doc_info.get("dtg"):
+                        st.markdown(f"**DTG:** {doc_info['dtg']}")
+                with cols[2]:
+                    if doc_info.get("unit"):
+                        st.markdown(f"**Unit:** {doc_info['unit']}")
+            
+            # Priority of fires
+            if data.get("priority_of_fires"):
+                with st.expander("**Priority of Fires**", expanded=True):
+                    for i, priority in enumerate(data["priority_of_fires"], 1):
+                        st.markdown(f"{i}. {priority}")
+            
+            # FSCMs
+            fscms = data.get("fscms", {})
+            if any(fscms.get(k) for k in ["nfas", "rfas", "cfls", "fpls", "other"]):
+                with st.expander("**Fire Support Coordination Measures**"):
+                    if fscms.get("nfas"):
+                        st.markdown("**NFAs:**")
+                        for nfa in fscms["nfas"]:
+                            st.markdown(f"- {nfa.get('name', 'NFA')}: {nfa.get('grid', '')} - {nfa.get('description', '')}")
+                    if fscms.get("rfas"):
+                        st.markdown("**RFAs:**")
+                        for rfa in fscms["rfas"]:
+                            st.markdown(f"- {rfa.get('name', 'RFA')}: {rfa.get('grid', '')} - {rfa.get('restrictions', '')}")
+                    if fscms.get("cfls"):
+                        st.markdown("**CFLs:**")
+                        for cfl in fscms["cfls"]:
+                            st.markdown(f"- {cfl.get('location', '')} (Effective: {cfl.get('effective', 'TBD')})")
+            
+            # Fire support tasks
+            if data.get("fire_support_tasks"):
+                with st.expander("**Fire Support Tasks**"):
+                    for task in data["fire_support_tasks"]:
+                        st.markdown(f"- **{task.get('phase', 'Task')}:** {task.get('task', '')} ({task.get('assets', '')})")
+            
+            # Coordinating instructions
+            if data.get("coordinating_instructions"):
+                with st.expander("**Coordinating Instructions**"):
+                    for instr in data["coordinating_instructions"]:
+                        st.markdown(f"- {instr}")
+            
+            # Available assets
+            if data.get("available_assets"):
+                with st.expander("**Available Fire Support Assets**"):
+                    for asset in data["available_assets"]:
+                        st.markdown(f"- {asset.get('unit', '')}: {asset.get('quantity', '')} {asset.get('type', '')} @ {asset.get('location', asset.get('availability', ''))}")
+            
+            # Summary
+            if data.get("summary"):
+                st.info(f"**Summary:** {data['summary']}")
 
 
 def render_chat():
@@ -1058,12 +1363,13 @@ def get_assistant_response(user_message: str) -> str:
         tlws_context = get_tlws_context()
         edl_context = get_edl_context()
         adversary_context = get_adversary_context()
+        opord_context = get_opord_context()
         
         system_prompt = get_system_prompt_with_context(
             ammo_status=get_ammo_status_string(),
             weapons_ref=weapons_ref,
             hughes_ref=hughes_ref,
-            appendix17_data="\n\n".join(filter(None, [hptl_context, tlws_context, edl_context, adversary_context]))
+            appendix17_data="\n\n".join(filter(None, [hptl_context, tlws_context, edl_context, adversary_context, opord_context]))
         )
         
         messages = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]

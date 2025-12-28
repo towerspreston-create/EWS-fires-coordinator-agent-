@@ -5,6 +5,24 @@
 
 ## GROUND-BASED FIRES
 
+### OPF-M (Organic Precision Fires-Mounted) - Hero-120
+
+OPF-M provides organic loitering munition capability to ground combat elements, enabling precision engagement of moving and time-sensitive targets.
+
+| Configuration | Range | Loiter Time | Warhead | Pk (Planning) |
+|---------------|-------|-------------|---------|---------------|
+| Standard | 20 km | 60 min | 4.5 kg shaped charge | 0.80-0.90 |
+| Extended Range | 60 km | 30 min | 4.5 kg shaped charge | 0.75-0.85 |
+
+**Note:** Extended range configuration requires pre-mission planning and reduces loiter time. User must specify "extended range" to use 60km capability.
+
+**Section Configuration:** 2 JLTVs × 6 missiles = 12 Hero-120 per section
+**Employment:** Man-in-the-loop, wave-off capable, effective vs moving targets
+**Best Against:** Armored vehicles, light fortifications, AD radars, C2 vehicles, HVTs
+**Limitations:** Weather dependent (rain/fog degrade optics), limited vs hardened/buried targets, one-way munition
+
+**Tactical Niche:** Ideal for TSTs, convoys, AD radars, C2 vehicles requiring positive ID before engagement. Complements HIMARS/artillery with loiter and moving-target capability.
+
 ### HIMARS (M142 High Mobility Artillery Rocket System)
 
 | Munition | Range | Pk (Planning) | Notes |

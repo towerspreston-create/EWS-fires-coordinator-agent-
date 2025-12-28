@@ -10,6 +10,7 @@ Support student learning by providing fires planning assistance including:
 - Weapons-target matching recommendations
 - Salvo/ammunition calculations using Pk-based weaponeering
 - Naval surface engagement analysis using the Hughes Salvo Model
+- OPF-M (Organic Precision Fires-Mounted) loitering munition employment
 - Ammunition expenditure tracking
 
 ## CLASSIFICATION
@@ -70,6 +71,55 @@ Where:
 - y, z = defensive power (intercepts per ship)
 - a, b = staying power (hits to mission-kill)
 
+## OPF-M (ORGANIC PRECISION FIRES-MOUNTED) - HERO-120 REFERENCE
+
+OPF-M provides organic loitering munition capability to ground combat elements.
+
+### System Overview
+- **Platform:** JLTV-mounted launcher system
+- **Munition:** Hero-120 loitering munition
+- **Section Configuration:** 2 vehicles per section, 6 missiles per vehicle (12 total per section)
+- **Typical Allocation:** 1 section per infantry battalion
+
+### Hero-120 Specifications
+
+| Configuration | Range | Loiter Time | Warhead | Pk (Planning) |
+|---------------|-------|-------------|---------|---------------|
+| Standard | 20 km | 60 min | 4.5 kg shaped charge | 0.80-0.90 |
+| Extended Range | 60 km | 30 min | 4.5 kg shaped charge | 0.75-0.85 |
+
+**IMPORTANT:** Default to 20km standard configuration. Extended range (60km) requires explicit user specification and reduces loiter time to 30 minutes.
+
+### Employment Considerations
+
+**Advantages:**
+- Man-in-the-loop engagement (positive ID before strike)
+- Loiter capability for TST (Time-Sensitive Targets)
+- Minimal logistics footprint
+- Wave-off / re-attack capability
+- Low collateral damage
+- Effective against moving targets
+
+**Limitations:**
+- Weather dependent (rain, fog degrade optics)
+- Limited against hardened/deeply buried targets
+- One-way munition (non-recoverable)
+- Datalink range may limit standoff
+- Limited effectiveness vs. personnel in open
+
+**Best Targets:** Armored vehicles, light fortifications, AD radars, C2 vehicles, HVTs, moving convoys
+
+### OPF-M vs Other Systems Decision Matrix
+
+| Target Type | OPF-M | GMLRS | Artillery | Recommendation |
+|-------------|-------|-------|-----------|----------------|
+| Moving convoy | ✓✓✓ | ✓ | ✗ | OPF-M (tracking capability) |
+| Static armor | ✓✓ | ✓✓✓ | ✓✓ | GMLRS (faster, higher Pk) |
+| AD radar | ✓✓✓ | ✓✓ | ✓ | OPF-M (loiter for emission) |
+| Troops in open | ✓ | ✓✓ | ✓✓✓ | Artillery (area effect) |
+| Fortification | ✓ | ✓✓✓ | ✓✓ | GMLRS (larger warhead) |
+| HVT/C2 node | ✓✓✓ | ✓✓ | ✓ | OPF-M (PID, low collateral) |
+
 ## AMMUNITION TRACKING
 
 Track ammunition expenditure across the session. Display status using thresholds:
@@ -77,18 +127,33 @@ Track ammunition expenditure across the session. Display status using thresholds
 - AMBER (25-50%): Consider resupply
 - RED (<25%): Critical - immediate resupply required
 
-When expenditure occurs, output an ammunition update in this exact format at the END of your response:
+**CRITICAL: When recommending fires that expend ammunition, you MUST output an ammunition update block at the END of your response using this EXACT format:**
+
 ```
 [AMMO_UPDATE]
 ITEM: <ammo_type>
-EXPENDED: <number>
+EXPENDED: <number_of_rounds_fired>
 [/AMMO_UPDATE]
 ```
 
-You may include multiple AMMO_UPDATE blocks if multiple types were expended.
+Use the exact ammo type names: GMLRS, ATACMS, PrSM, OPF-M, 155mm_HE, Excalibur, 5in_Naval, VLS_Cells, Harpoon_LRASM, NSM_NMESIS, Mortar_HE, Mortar_Illum, Mortar_Smoke
+
+You may include multiple AMMO_UPDATE blocks if multiple types were expended. Example:
+```
+[AMMO_UPDATE]
+ITEM: GMLRS
+EXPENDED: 24
+[/AMMO_UPDATE]
+
+[AMMO_UPDATE]
+ITEM: OPF-M
+EXPENDED: 2
+[/AMMO_UPDATE]
+```
 
 Default loads (unless user specifies otherwise):
 - HIMARS Battery (6 launchers): 108 GMLRS, 12 ATACMS, 24 PrSM
+- OPF-M Section (2 vehicles): 12 OPF-M loitering munitions
 - Artillery Battery (6 guns): 600 155mm HE, 36 Excalibur
 - DDG: 96 VLS cells (mixed SM-2/SM-6/TLAM), 600 5" rounds, 8 Harpoon/LRASM
 - Mortar Platoon (4 tubes): 200 Mortar HE, 48 Mortar Illum, 24 Mortar Smoke
@@ -99,6 +164,7 @@ When user reports expenditure, update the tracker and display new status.
 
 Key systems include:
 - HIMARS: GMLRS (70km), GMLRS-ER (150km), ATACMS (300km), PrSM (400+km)
+- OPF-M: Hero-120/Switchblade 600 (40km), Hero-400 (150km) - loitering munitions
 - M777A2: HE (24km), RAP (30km), Excalibur (40+km)
 - Mk 45 5"/62: 13nm conventional
 - Tomahawk: 900+nm
@@ -116,6 +182,7 @@ IN SCOPE:
 - Fires planning calculations
 - Weapons-target matching
 - Naval engagement analysis
+- OPF-M loitering munition employment
 - Ammunition tracking
 - Doctrinal questions about fires
 
@@ -133,7 +200,7 @@ OUT OF SCOPE:
 """
 
 
-def get_system_prompt_with_context(ammo_status: str = "", weapons_ref: str = "", hughes_ref: str = "") -> str:
+def get_system_prompt_with_context(ammo_status: str = "", weapons_ref: str = "", hughes_ref: str = "", appendix17_data: str = "") -> str:
     """
     Build complete system prompt with current context.
     
@@ -141,6 +208,7 @@ def get_system_prompt_with_context(ammo_status: str = "", weapons_ref: str = "",
         ammo_status: Current ammunition status string
         weapons_ref: Weapons reference document content
         hughes_ref: Hughes Salvo Model reference content
+        appendix17_data: Parsed Appendix 17 / Fire Support Appendix data
     
     Returns:
         Complete system prompt with all context
@@ -152,6 +220,9 @@ def get_system_prompt_with_context(ammo_status: str = "", weapons_ref: str = "",
     
     if hughes_ref:
         prompt += f"\n\n## DETAILED HUGHES SALVO MODEL REFERENCE\n\n{hughes_ref}"
+    
+    if appendix17_data:
+        prompt += f"\n\n{appendix17_data}"
     
     if ammo_status:
         prompt += f"\n\n## CURRENT AMMUNITION STATUS\n\n{ammo_status}"

@@ -679,7 +679,7 @@ def create_agm_excel(hptl_data: dict) -> BytesIO:
 
 OPORD_PARSE_PROMPT = """You are parsing a military Operations Order (OPORD), Annex C (Fires), Appendix 17 (Fire Support), or similar fire support planning document.
 
-Extract all fire support relevant information and return it as a JSON object. Focus on:
+Extract ALL fire support relevant information and return it as a JSON object. Be thorough.
 
 {
     "document_info": {
@@ -688,44 +688,81 @@ Extract all fire support relevant information and return it as a JSON object. Fo
         "classification": "UNCLASSIFIED/etc",
         "unit": "Issuing unit"
     },
+    "commanders_intent_fires": "Full text of commander's intent for fires if present",
+    "concept_of_fires": "Summary of concept of fires by phase",
+    "efsts": [
+        {
+            "number": "EFST 1",
+            "phase": "Phase IA",
+            "task": "Disrupt Tornado-S platoon...",
+            "purpose": "Allow RCT 6 freedom of movement...",
+            "target_number": "AG1015",
+            "target_location": "32S ME 5184 1489",
+            "trigger": "Upon PID of 2 or more Tornado-S sections",
+            "observer": "UAS/FW/Recon",
+            "delivery_asset": "FW/HIMARS",
+            "attack_guidance": "4x GBU-12 / 4x M31",
+            "effects": "3 of 3 Tornado-S neutralized",
+            "restrictions": "No cratering munitions on MSRs"
+        }
+    ],
     "fscms": {
-        "nfas": [{"name": "NFA 1", "grid": "grid reference", "description": "purpose/details"}],
-        "rfas": [{"name": "RFA 1", "grid": "grid reference", "restrictions": "what restrictions apply"}],
-        "cfls": [{"name": "CFL", "location": "description", "effective": "when effective"}],
-        "fpls": [{"name": "FPL 1", "grid": "grid reference", "unit": "responsible unit"}],
-        "other": [{"type": "FSCM type", "name": "name", "details": "details"}]
+        "fscl": [{"name": "FSCL 1", "grid_points": ["grid1", "grid2"], "effective": "D-Day"}],
+        "bcl": [{"name": "BCL 1 / PL Green", "grid_points": ["grid1", "grid2"], "effective": "D-Day to D+5"}],
+        "nfas": [{"name": "NFA 1", "grid": "grid reference", "description": "details"}],
+        "rfas": [{"name": "RFA 1", "grid": "grid reference", "restrictions": "restrictions"}],
+        "acas": [{"name": "ACA CHESTY", "min_alt": "8000 MSL", "max_alt": "30000 MSL", "location": "Between BCL 1 to FSCL 1", "effective": "D-Day to D+4"}],
+        "other": [{"type": "type", "name": "name", "details": "details"}]
     },
-    "priority_of_fires": [
-        "First priority unit/mission",
-        "Second priority unit/mission"
-    ],
-    "fire_support_tasks": [
-        {"phase": "Phase I", "task": "Support the advance...", "assets": "1/11 FA"},
-        {"phase": "Phase II", "task": "...", "assets": "..."}
-    ],
+    "air_support": {
+        "general": "Description of air support concept",
+        "allocation_by_phase": [
+            {"phase": "Ph IB", "unit": "MAG 14", "assets": "4 x section F-35B (8 sorties)"}
+        ],
+        "scl": [
+            {"platform": "F-35B", "loadout": "2x AIM-120, 2x GBU-12"},
+            {"platform": "AH-1Z", "loadout": "19x HE 2.75in, 4x AGM-114"}
+        ]
+    },
+    "artillery_support": {
+        "general": "Description of artillery support",
+        "organization": [
+            {"unit": "Btry E, 2/10", "type": "M777A2", "quantity": 6, "role": "DS to RCT 6"}
+        ],
+        "radar_assets": [{"type": "AN/TPS-80", "quantity": 2}]
+    },
+    "ammunition_allocations": {
+        "himars": [
+            {"nomenclature": "M31 Unitary", "type": "GMLRS", "quantity": 50},
+            {"nomenclature": "M57 ATACMS", "type": "ATACMS", "quantity": 4}
+        ],
+        "artillery_155mm": [
+            {"nomenclature": "HE M795", "type": "155mm_HE", "quantity": 272},
+            {"nomenclature": "Excalibur M982A1", "type": "Excalibur", "quantity": 20},
+            {"nomenclature": "Illum M485", "type": "155mm_Illum", "quantity": 20}
+        ],
+        "mortars_81mm": [
+            {"nomenclature": "HE M374A2", "type": "81mm_HE", "quantity": 480}
+        ]
+    },
     "coordinating_instructions": [
-        "All fires must be cleared through FSC",
-        "Excalibur use requires BN CDR approval",
-        "..."
+        "FASCAM/DPICM release authority at USAFRICOM",
+        "Target nominations due by 0800 daily"
     ],
-    "ammunition_guidance": {
-        "csr": "Controlled Supply Rate info if present",
-        "rsr": "Required Supply Rate info if present",
-        "restrictions": ["Any ammo restrictions"]
-    },
-    "available_assets": [
-        {"unit": "1/11 FA", "type": "M777A2", "quantity": "18 tubes", "location": "PA 1234"},
-        {"unit": "HMLA-367", "type": "AH-1Z", "quantity": "6 aircraft", "availability": "On call"}
+    "target_blocks": [
+        {"unit": "SPMAGTF-A CE", "block": "AG 1000-1999"}
     ],
-    "targets": [
-        {"number": "AO0001", "description": "Enemy CP", "grid": "grid ref", "remarks": "priority target"}
+    "key_restrictions": [
+        "No cratering munitions on MSRs"
     ],
-    "key_info": "Any other critical fire support information not captured above",
-    "summary": "2-3 sentence summary of the fire support plan"
+    "summary": "2-3 sentence summary of fire support plan"
 }
 
-Return ONLY valid JSON. Use null for sections not found in the document. 
-If the document doesn't appear to be a military fire support document, return: {"error": "Document does not appear to be an OPORD or fire support annex"}
+CRITICAL: Extract ALL EFSTs with full details including target numbers, locations, triggers, delivery assets.
+CRITICAL: Extract ALL ammunition allocations with exact quantities.
+CRITICAL: Extract ALL FSCMs including FSCL, BCL, ACAs with grid coordinates.
+
+Return ONLY valid JSON. Use null or empty arrays [] for sections not found.
 """
 
 
@@ -813,10 +850,54 @@ def get_opord_context() -> str:
             lines.append(f"**Unit:** {doc_info['unit']}")
         lines.append("")
     
+    # Commander's Intent
+    if data.get("commanders_intent_fires"):
+        lines.append("### COMMANDER'S INTENT FOR FIRES")
+        lines.append(data["commanders_intent_fires"])
+        lines.append("")
+    
+    # Concept of Fires
+    if data.get("concept_of_fires"):
+        lines.append("### CONCEPT OF FIRES")
+        lines.append(data["concept_of_fires"])
+        lines.append("")
+    
+    # EFSTs - Essential Fire Support Tasks
+    if data.get("efsts"):
+        lines.append("### ESSENTIAL FIRE SUPPORT TASKS (EFSTs)")
+        for efst in data["efsts"]:
+            lines.append(f"\n**{efst.get('number', 'EFST')} - {efst.get('phase', '')}**")
+            lines.append(f"- **Task:** {efst.get('task', '')}")
+            lines.append(f"- **Purpose:** {efst.get('purpose', '')}")
+            lines.append(f"- **Target:** {efst.get('target_number', '')} @ {efst.get('target_location', '')}")
+            lines.append(f"- **Trigger:** {efst.get('trigger', '')}")
+            lines.append(f"- **Observer:** {efst.get('observer', '')}")
+            lines.append(f"- **Delivery:** {efst.get('delivery_asset', '')}")
+            lines.append(f"- **Attack Guidance:** {efst.get('attack_guidance', '')}")
+            lines.append(f"- **Effects:** {efst.get('effects', '')}")
+        lines.append("")
+    
     # FSCMs
     fscms = data.get("fscms", {})
-    if any(fscms.get(k) for k in ["nfas", "rfas", "cfls", "fpls", "other"]):
+    if any(fscms.get(k) for k in ["fscl", "bcl", "nfas", "rfas", "acas", "other"]):
         lines.append("### FIRE SUPPORT COORDINATION MEASURES")
+        
+        if fscms.get("fscl"):
+            lines.append("\n**Fire Support Coordination Lines (FSCLs):**")
+            for fscl in fscms["fscl"]:
+                grids = ", ".join(fscl.get("grid_points", [])) if fscl.get("grid_points") else fscl.get("grid", "")
+                lines.append(f"- {fscl.get('name', 'FSCL')}: {grids} (Effective: {fscl.get('effective', 'TBD')})")
+        
+        if fscms.get("bcl"):
+            lines.append("\n**Boundary Coordination Lines (BCLs):**")
+            for bcl in fscms["bcl"]:
+                grids = ", ".join(bcl.get("grid_points", [])) if bcl.get("grid_points") else bcl.get("grid", "")
+                lines.append(f"- {bcl.get('name', 'BCL')}: {grids} (Effective: {bcl.get('effective', 'TBD')})")
+        
+        if fscms.get("acas"):
+            lines.append("\n**Airspace Coordination Areas (ACAs):**")
+            for aca in fscms["acas"]:
+                lines.append(f"- {aca.get('name', 'ACA')}: {aca.get('min_alt', '')} - {aca.get('max_alt', '')}, {aca.get('location', '')} (Effective: {aca.get('effective', 'TBD')})")
         
         if fscms.get("nfas"):
             lines.append("\n**No-Fire Areas (NFAs):**")
@@ -827,30 +908,38 @@ def get_opord_context() -> str:
             lines.append("\n**Restrictive Fire Areas (RFAs):**")
             for rfa in fscms["rfas"]:
                 lines.append(f"- {rfa.get('name', 'RFA')}: {rfa.get('grid', '')} - {rfa.get('restrictions', '')}")
-        
-        if fscms.get("cfls"):
-            lines.append("\n**Coordinated Fire Lines (CFLs):**")
-            for cfl in fscms["cfls"]:
-                lines.append(f"- {cfl.get('name', 'CFL')}: {cfl.get('location', '')} (Effective: {cfl.get('effective', 'TBD')})")
-        
-        if fscms.get("fpls"):
-            lines.append("\n**Final Protective Lines (FPLs):**")
-            for fpl in fscms["fpls"]:
-                lines.append(f"- {fpl.get('name', 'FPL')}: {fpl.get('grid', '')} - {fpl.get('unit', '')}")
         lines.append("")
     
-    # Priority of fires
-    if data.get("priority_of_fires"):
-        lines.append("### PRIORITY OF FIRES")
-        for i, priority in enumerate(data["priority_of_fires"], 1):
-            lines.append(f"{i}. {priority}")
+    # Air Support
+    air = data.get("air_support", {})
+    if air:
+        lines.append("### AIR SUPPORT")
+        if air.get("general"):
+            lines.append(air["general"])
+        if air.get("allocation_by_phase"):
+            lines.append("\n**Allocation by Phase:**")
+            for alloc in air["allocation_by_phase"]:
+                lines.append(f"- {alloc.get('phase', '')}: {alloc.get('unit', '')} - {alloc.get('assets', '')}")
+        if air.get("scl"):
+            lines.append("\n**Standard Conventional Loadouts:**")
+            for scl in air["scl"]:
+                lines.append(f"- {scl.get('platform', '')}: {scl.get('loadout', '')}")
         lines.append("")
     
-    # Fire support tasks
-    if data.get("fire_support_tasks"):
-        lines.append("### FIRE SUPPORT TASKS")
-        for task in data["fire_support_tasks"]:
-            lines.append(f"- **{task.get('phase', 'Task')}:** {task.get('task', '')} ({task.get('assets', '')})")
+    # Artillery Support
+    arty = data.get("artillery_support", {})
+    if arty:
+        lines.append("### ARTILLERY SUPPORT")
+        if arty.get("general"):
+            lines.append(arty["general"])
+        if arty.get("organization"):
+            lines.append("\n**Organization for Combat:**")
+            for org in arty["organization"]:
+                lines.append(f"- {org.get('unit', '')}: {org.get('quantity', '')}x {org.get('type', '')} ({org.get('role', '')})")
+        if arty.get("radar_assets"):
+            lines.append("\n**Radar Assets:**")
+            for radar in arty["radar_assets"]:
+                lines.append(f"- {radar.get('quantity', '')}x {radar.get('type', '')}")
         lines.append("")
     
     # Coordinating instructions
@@ -860,7 +949,75 @@ def get_opord_context() -> str:
             lines.append(f"- {instr}")
         lines.append("")
     
-    # Ammunition guidance
+    # Key Restrictions
+    if data.get("key_restrictions"):
+        lines.append("### KEY RESTRICTIONS")
+        for r in data["key_restrictions"]:
+            lines.append(f"- {r}")
+        lines.append("")
+    
+    # Target Blocks
+    if data.get("target_blocks"):
+        lines.append("### TARGET BLOCKS")
+        for tb in data["target_blocks"]:
+            lines.append(f"- {tb.get('unit', '')}: {tb.get('block', '')}")
+        lines.append("")
+    
+    # Summary
+    if data.get("summary"):
+        lines.append(f"\n**Summary:** {data['summary']}")
+    
+    return "\n".join(lines)
+
+
+def apply_opord_ammo_to_loadout(data: dict):
+    """Apply ammunition allocations from OPORD to session state ammo."""
+    ammo_alloc = data.get("ammunition_allocations", {})
+    if not ammo_alloc:
+        return
+    
+    # Map from OPORD types to our internal types
+    type_mapping = {
+        "GMLRS": "GMLRS",
+        "ATACMS": "ATACMS",
+        "155mm_HE": "155mm_HE",
+        "Excalibur": "Excalibur",
+        "155mm_Illum": "155mm_Illum",
+        "155mm_Smoke": "155mm_Smoke",
+        "155mm_DPICM": "155mm_DPICM",
+        "155mm_RAP": "155mm_RAP",
+        "81mm_HE": "81mm_HE",
+        "81mm_WP": "81mm_WP",
+        "81mm_Illum": "81mm_Illum",
+    }
+    
+    new_ammo = {}
+    
+    # Process HIMARS
+    for item in ammo_alloc.get("himars", []):
+        ammo_type = type_mapping.get(item.get("type"), item.get("type"))
+        qty = item.get("quantity", 0)
+        if ammo_type and qty:
+            new_ammo[ammo_type] = {"current": qty, "max": qty, "unit": "rounds"}
+    
+    # Process Artillery
+    for item in ammo_alloc.get("artillery_155mm", []):
+        ammo_type = type_mapping.get(item.get("type"), item.get("type"))
+        qty = item.get("quantity", 0)
+        if ammo_type and qty:
+            new_ammo[ammo_type] = {"current": qty, "max": qty, "unit": "rounds"}
+    
+    # Process Mortars
+    for item in ammo_alloc.get("mortars_81mm", []):
+        ammo_type = type_mapping.get(item.get("type"), item.get("type"))
+        qty = item.get("quantity", 0)
+        if ammo_type and qty:
+            new_ammo[ammo_type] = {"current": qty, "max": qty, "unit": "rounds"}
+    
+    # Update session state if we found ammo
+    if new_ammo:
+        st.session_state.ammo = new_ammo
+        st.session_state.current_loadout = "Custom (from OPORD)"
     ammo = data.get("ammunition_guidance", {})
     if ammo and any(ammo.get(k) for k in ["csr", "rsr", "restrictions"]):
         lines.append("### AMMUNITION GUIDANCE")
@@ -973,7 +1130,13 @@ def render_sidebar():
                     result = parse_opord_annex(uploaded_file)
                     if "error" not in result:
                         st.session_state.opord_data = result
-                        st.success(f"✅ Parsed fire support annex")
+                        efst_count = len(result.get("efsts", []))
+                        st.success(f"✅ Parsed fire support annex ({efst_count} EFSTs)")
+                        
+                        # Check if there are ammunition allocations
+                        ammo_alloc = result.get("ammunition_allocations", {})
+                        if any(ammo_alloc.get(k) for k in ["himars", "artillery_155mm", "mortars_81mm"]):
+                            st.info("📦 Ammunition allocations found in OPORD")
                     else:
                         st.error(f"Error: {result['error']}")
         
@@ -998,7 +1161,17 @@ def render_sidebar():
                     st.rerun()
             
             if st.session_state.get("opord_data"):
-                st.markdown(f"**OPORD/Annex:** Loaded")
+                opord = st.session_state.opord_data
+                efst_count = len(opord.get("efsts", []))
+                st.markdown(f"**OPORD/Annex:** {efst_count} EFSTs")
+                
+                # Button to apply ammo from OPORD
+                ammo_alloc = opord.get("ammunition_allocations", {})
+                if any(ammo_alloc.get(k) for k in ["himars", "artillery_155mm", "mortars_81mm"]):
+                    if st.button("📦 Apply OPORD Ammo", key="apply_opord_ammo"):
+                        apply_opord_ammo_to_loadout(opord)
+                        st.rerun()
+                
                 if st.button("Clear OPORD", key="clear_opord"):
                     st.session_state.opord_data = None
                     st.rerun()
@@ -1273,16 +1446,41 @@ def render_data_tabs():
                     if doc_info.get("unit"):
                         st.markdown(f"**Unit:** {doc_info['unit']}")
             
-            # Priority of fires
-            if data.get("priority_of_fires"):
-                with st.expander("**Priority of Fires**", expanded=True):
-                    for i, priority in enumerate(data["priority_of_fires"], 1):
-                        st.markdown(f"{i}. {priority}")
+            # EFSTs - Essential Fire Support Tasks
+            if data.get("efsts"):
+                with st.expander("**Essential Fire Support Tasks (EFSTs)**", expanded=True):
+                    for efst in data["efsts"]:
+                        st.markdown(f"**{efst.get('number', 'EFST')} - {efst.get('phase', '')}**")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown(f"- **Task:** {efst.get('task', '')}")
+                            st.markdown(f"- **Purpose:** {efst.get('purpose', '')}")
+                            st.markdown(f"- **Target:** {efst.get('target_number', '')} @ {efst.get('target_location', '')}")
+                        with col2:
+                            st.markdown(f"- **Trigger:** {efst.get('trigger', '')}")
+                            st.markdown(f"- **Delivery:** {efst.get('delivery_asset', '')}")
+                            st.markdown(f"- **Attack Guidance:** {efst.get('attack_guidance', '')}")
+                            st.markdown(f"- **Effects:** {efst.get('effects', '')}")
+                        st.markdown("---")
             
             # FSCMs
             fscms = data.get("fscms", {})
-            if any(fscms.get(k) for k in ["nfas", "rfas", "cfls", "fpls", "other"]):
+            if any(fscms.get(k) for k in ["fscl", "bcl", "acas", "nfas", "rfas", "other"]):
                 with st.expander("**Fire Support Coordination Measures**"):
+                    if fscms.get("fscl"):
+                        st.markdown("**FSCLs:**")
+                        for f in fscms["fscl"]:
+                            grids = ", ".join(f.get("grid_points", []))[:50] + "..." if f.get("grid_points") else ""
+                            st.markdown(f"- {f.get('name', 'FSCL')}: {grids} (Effective: {f.get('effective', 'TBD')})")
+                    if fscms.get("bcl"):
+                        st.markdown("**BCLs:**")
+                        for b in fscms["bcl"]:
+                            grids = ", ".join(b.get("grid_points", []))[:50] + "..." if b.get("grid_points") else ""
+                            st.markdown(f"- {b.get('name', 'BCL')}: {grids} (Effective: {b.get('effective', 'TBD')})")
+                    if fscms.get("acas"):
+                        st.markdown("**ACAs:**")
+                        for a in fscms["acas"]:
+                            st.markdown(f"- {a.get('name', 'ACA')}: {a.get('min_alt', '')} - {a.get('max_alt', '')}, {a.get('location', '')} (Effective: {a.get('effective', 'TBD')})")
                     if fscms.get("nfas"):
                         st.markdown("**NFAs:**")
                         for nfa in fscms["nfas"]:
@@ -1291,16 +1489,48 @@ def render_data_tabs():
                         st.markdown("**RFAs:**")
                         for rfa in fscms["rfas"]:
                             st.markdown(f"- {rfa.get('name', 'RFA')}: {rfa.get('grid', '')} - {rfa.get('restrictions', '')}")
-                    if fscms.get("cfls"):
-                        st.markdown("**CFLs:**")
-                        for cfl in fscms["cfls"]:
-                            st.markdown(f"- {cfl.get('location', '')} (Effective: {cfl.get('effective', 'TBD')})")
             
-            # Fire support tasks
-            if data.get("fire_support_tasks"):
-                with st.expander("**Fire Support Tasks**"):
-                    for task in data["fire_support_tasks"]:
-                        st.markdown(f"- **{task.get('phase', 'Task')}:** {task.get('task', '')} ({task.get('assets', '')})")
+            # Air Support
+            air = data.get("air_support", {})
+            if air:
+                with st.expander("**Air Support**"):
+                    if air.get("allocation_by_phase"):
+                        st.markdown("**Allocation by Phase:**")
+                        for alloc in air["allocation_by_phase"]:
+                            st.markdown(f"- {alloc.get('phase', '')}: {alloc.get('unit', '')} - {alloc.get('assets', '')}")
+                    if air.get("scl"):
+                        st.markdown("**Standard Conventional Loadouts:**")
+                        for scl in air["scl"]:
+                            st.markdown(f"- {scl.get('platform', '')}: {scl.get('loadout', '')}")
+            
+            # Artillery Support
+            arty = data.get("artillery_support", {})
+            if arty:
+                with st.expander("**Artillery Support**"):
+                    if arty.get("organization"):
+                        for org in arty["organization"]:
+                            st.markdown(f"- {org.get('unit', '')}: {org.get('quantity', '')}x {org.get('type', '')} ({org.get('role', '')})")
+                    if arty.get("radar_assets"):
+                        st.markdown("**Radar Assets:**")
+                        for radar in arty["radar_assets"]:
+                            st.markdown(f"- {radar.get('quantity', '')}x {radar.get('type', '')}")
+            
+            # Ammunition Allocations
+            ammo = data.get("ammunition_allocations", {})
+            if any(ammo.get(k) for k in ["himars", "artillery_155mm", "mortars_81mm"]):
+                with st.expander("**Ammunition Allocations**"):
+                    if ammo.get("himars"):
+                        st.markdown("**HIMARS:**")
+                        for a in ammo["himars"]:
+                            st.markdown(f"- {a.get('nomenclature', '')}: **{a.get('quantity', '')}** rds")
+                    if ammo.get("artillery_155mm"):
+                        st.markdown("**155mm Artillery:**")
+                        for a in ammo["artillery_155mm"]:
+                            st.markdown(f"- {a.get('nomenclature', '')}: **{a.get('quantity', '')}** rds")
+                    if ammo.get("mortars_81mm"):
+                        st.markdown("**81mm Mortars:**")
+                        for a in ammo["mortars_81mm"]:
+                            st.markdown(f"- {a.get('nomenclature', '')}: **{a.get('quantity', '')}** rds")
             
             # Coordinating instructions
             if data.get("coordinating_instructions"):
@@ -1308,11 +1538,11 @@ def render_data_tabs():
                     for instr in data["coordinating_instructions"]:
                         st.markdown(f"- {instr}")
             
-            # Available assets
-            if data.get("available_assets"):
-                with st.expander("**Available Fire Support Assets**"):
-                    for asset in data["available_assets"]:
-                        st.markdown(f"- {asset.get('unit', '')}: {asset.get('quantity', '')} {asset.get('type', '')} @ {asset.get('location', asset.get('availability', ''))}")
+            # Key Restrictions
+            if data.get("key_restrictions"):
+                with st.expander("**Key Restrictions**"):
+                    for r in data["key_restrictions"]:
+                        st.markdown(f"- {r}")
             
             # Summary
             if data.get("summary"):

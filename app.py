@@ -215,21 +215,33 @@ DEFAULT_TSS = {
 # HELPER FUNCTIONS
 # =============================================================================
 
-def load_reference_docs() -> tuple[str, str]:
-    """Load reference documentation from files."""
-    base_path = Path(__file__).parent / "data"
-    weapons_ref = ""
-    hughes_ref = ""
+def load_reference_docs():
+    """Load all reference documents for the agent's knowledge base."""
     
-    weapons_path = base_path / "weapons_reference.md"
-    hughes_path = base_path / "hughes_salvo_model.md"
+    docs = {}
     
-    if weapons_path.exists():
-        weapons_ref = weapons_path.read_text()
-    if hughes_path.exists():
-        hughes_ref = hughes_path.read_text()
+    # Weapons Reference
+    try:
+        with open('data/weapons_reference.md', 'r', encoding='utf-8') as f:
+            docs['weapons'] = f.read()
+    except FileNotFoundError:
+        docs['weapons'] = "Weapons reference not found."
     
-    return weapons_ref, hughes_ref
+    # Hughes Salvo Model
+    try:
+        with open('data/hughes_salvo_model.md', 'r', encoding='utf-8') as f:
+            docs['hughes'] = f.read()
+    except FileNotFoundError:
+        docs['hughes'] = "Hughes Salvo Model reference not found."
+    
+    # Fires Doctrine Reference (NEW)
+    try:
+        with open('data/fires_doctrine_reference.md', 'r', encoding='utf-8') as f:
+            docs['doctrine'] = f.read()
+    except FileNotFoundError:
+        docs['doctrine'] = "Doctrine reference not found."
+    
+    return docs
 
 
 def get_ammo_status_string() -> str:

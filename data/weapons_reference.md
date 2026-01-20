@@ -187,7 +187,13 @@ represents PLANNING ESTIMATES derived from unclassified sources.
 
 **Typical Employment:** Carrier escort, SAG flagship, area air defense, command ship
 **Target Value:** HIGH-VALUE
-**Hughes Model Parameters:** β = 9.6-14.4 (24 × YJ-18), y = 6-10, b = 2-4 hits
+**Hughes Model Parameters:**
+- Raw missiles per salvo (β): 24 YJ-18
+- Targeting effectiveness (σ): 0.25-0.35 vs AEGIS, 0.40-0.50 vs FFG
+- Effective offensive power (β × σ): 6.0-12.0 vs defended targets
+- Defensive power (y): 6-10 intercepts per salvo
+- Staying power (b): 2-4 hits to mission-kill
+- *Use β = 24 with appropriate σ, OR use β × σ value with σ = 1.0*
 
 ---
 
@@ -220,7 +226,13 @@ represents PLANNING ESTIMATES derived from unclassified sources.
 
 **Typical Employment:** Carrier escort, SAG operations, multi-mission
 **Target Value:** HIGH-VALUE
-**Hughes Model Parameters:** β = 3.2-4.8 (8 × YJ-18), y = 4-8, b = 1-2 hits
+**Hughes Model Parameters:**
+- Raw missiles per salvo (β): 8 YJ-18
+- Targeting effectiveness (σ): 0.25-0.35 vs AEGIS, 0.40-0.50 vs FFG
+- Effective offensive power (β × σ): 2.0-4.0 vs defended targets
+- Defensive power (y): 4-8 intercepts per salvo
+- Staying power (b): 1-2 hits to mission-kill
+- *Use β = 8 with appropriate σ, OR use β × σ value with σ = 1.0*
 
 ---
 
@@ -740,7 +752,7 @@ represents PLANNING ESTIMATES derived from unclassified sources.
 
 | Ship Class | y (Defensive Power) | Simultaneous Engagements | Notes |
 |------------|---------------------|--------------------------|-------|
-| Type 055 | 8-12 | 8-12 | Most capable; AESA, 112 VLS |
+| Type 055 | 6-10 | 6-8 | Most capable; matches Section 7.1.1 |
 | Type 052D | 6-8 | 6-8 | Dragon Eye radar |
 | Type 052C | 6-8 | 4-6 | Older AESA |
 | Type 054A | 4-6 | 2-4 | HQ-16 limited |

@@ -1,5 +1,5 @@
 """
-Fires Coordinator Agent v4
+Fires Coordinator Agent v8
 EWS MAGTF Operations Afloat Training Tool
 
 A Streamlit application that provides AI-assisted fires planning support
@@ -13,7 +13,9 @@ Features:
 - AGM/TSS/HPTL Matrix parsing and creation
 - Target List Worksheet (TLWS) management
 - Equipment Density List (EDL) parsing
-- Ammunition tracking
+- OPORD/Annex parsing with EFST extraction
+- Ammunition tracking with dynamic loadouts
+- Interactive map with threat rings
 """
 
 import streamlit as st
@@ -25,6 +27,16 @@ import copy
 import json
 import pandas as pd
 from io import BytesIO
+import math
+
+# Map imports
+try:
+    import folium
+    from streamlit_folium import st_folium
+    import mgrs
+    MAPS_AVAILABLE = True
+except ImportError:
+    MAPS_AVAILABLE = False
 
 # Add prompts directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -200,6 +212,175 @@ AMMO_CATEGORIES = {
 }
 
 # =============================================================================
+# NAVAL PLATFORM LOADOUTS (for dynamic task org)
+# =============================================================================
+
+NAVAL_PLATFORM_LOADOUTS = {
+    "DDG_FLT_IIA": {
+        "name": "DDG-51 Flight IIA",
+        "description": "Arleigh Burke Flight IIA with helo hangar",
+        "ammo": {
+            "VLS_Cells": 96,
+            "5in_Naval": 600,
+            "Harpoon_LRASM": 8,
+        },
+        "capabilities": ["MH-60R ASW", "AEGIS BMD"],
+    },
+    "DDG_FLT_III": {
+        "name": "DDG-51 Flight III",
+        "description": "Arleigh Burke Flight III with SPY-6 radar",
+        "ammo": {
+            "VLS_Cells": 96,
+            "5in_Naval": 600,
+            "Harpoon_LRASM": 8,
+        },
+        "capabilities": ["MH-60R ASW", "AEGIS BMD", "SPY-6 AMDR"],
+    },
+    "CG": {
+        "name": "CG-47 Ticonderoga",
+        "description": "Ticonderoga-class cruiser",
+        "ammo": {
+            "VLS_Cells": 122,
+            "5in_Naval": 600,
+            "Harpoon_LRASM": 8,
+        },
+        "capabilities": ["AEGIS", "2x 5in guns"],
+    },
+    "FFG": {
+        "name": "FFG-62 Constellation",
+        "description": "Constellation-class frigate",
+        "ammo": {
+            "VLS_Cells": 32,
+            "5in_Naval": 400,
+        },
+        "capabilities": ["EASR radar", "MH-60R ASW"],
+    },
+    "LCS": {
+        "name": "LCS",
+        "description": "Littoral Combat Ship",
+        "ammo": {
+            "RAM": 21,
+        },
+        "capabilities": ["Mission modules", "Surface warfare"],
+    },
+}
+
+# Platform name aliases for parsing
+PLATFORM_ALIASES = {
+    "ddg": "DDG_FLT_IIA",
+    "ddg-51": "DDG_FLT_IIA",
+    "ddg flt ii": "DDG_FLT_IIA",
+    "ddg flt iia": "DDG_FLT_IIA",
+    "ddg flight iia": "DDG_FLT_IIA",
+    "ddg flt iii": "DDG_FLT_III",
+    "ddg flight iii": "DDG_FLT_III",
+    "cg": "CG",
+    "cg-47": "CG",
+    "cruiser": "CG",
+    "ticonderoga": "CG",
+    "ffg": "FFG",
+    "ffg-62": "FFG",
+    "constellation": "FFG",
+    "frigate": "FFG",
+    "lcs": "LCS",
+}
+
+# Ground unit loadouts
+GROUND_UNIT_LOADOUTS = {
+    "HIMARS_BTY": {
+        "name": "HIMARS Battery",
+        "description": "6x M142 HIMARS launchers",
+        "ammo": {
+            "GMLRS": 108,
+            "ATACMS": 12,
+            "PrSM": 24,
+        },
+    },
+    "ARTY_BTY_155": {
+        "name": "Artillery Battery (M777)",
+        "description": "6x M777A2 howitzers",
+        "ammo": {
+            "155mm_HE": 600,
+            "Excalibur": 36,
+        },
+    },
+    "NMESIS_PLT": {
+        "name": "NMESIS Platoon",
+        "description": "9x NMESIS launchers (18 NSM)",
+        "ammo": {
+            "NSM_NMESIS": 18,
+        },
+    },
+    "OPF-M_SEC": {
+        "name": "OPF-M Section",
+        "description": "2x JLTV with Hero-120",
+        "ammo": {
+            "OPF-M": 12,
+        },
+    },
+    "MORTAR_PLT": {
+        "name": "81mm Mortar Platoon",
+        "description": "4x 81mm mortars",
+        "ammo": {
+            "Mortar_HE": 200,
+            "Mortar_Illum": 48,
+            "Mortar_Smoke": 24,
+        },
+    },
+}
+
+# =============================================================================
+# THREAT SYSTEMS DATA (for map visualization)
+# =============================================================================
+
+# Range in nautical miles for threat rings
+THREAT_SYSTEMS = {
+    # BLUE FORCE - Friendly systems
+    "blue": {
+        "HIMARS": {"range_nm": 40, "type": "fires", "color": "blue", "description": "GMLRS range"},
+        "HIMARS_ER": {"range_nm": 81, "type": "fires", "color": "blue", "description": "GMLRS-ER range"},
+        "PrSM": {"range_nm": 310, "type": "fires", "color": "blue", "description": "PrSM range"},
+        "ATACMS": {"range_nm": 190, "type": "fires", "color": "blue", "description": "ATACMS range"},
+        "M777": {"range_nm": 13, "type": "fires", "color": "blue", "description": "155mm HE range"},
+        "Excalibur": {"range_nm": 22, "type": "fires", "color": "blue", "description": "Excalibur range"},
+        "NSM_NMESIS": {"range_nm": 100, "type": "ascm", "color": "blue", "description": "NSM range"},
+        "Harpoon": {"range_nm": 67, "type": "ascm", "color": "blue", "description": "Harpoon range"},
+        "LRASM": {"range_nm": 200, "type": "ascm", "color": "blue", "description": "LRASM range"},
+        "SM-6": {"range_nm": 130, "type": "sam", "color": "blue", "description": "SM-6 range"},
+        "Tomahawk": {"range_nm": 900, "type": "strike", "color": "blue", "description": "TLAM range"},
+    },
+    # RED FORCE - Adversary systems (longest range threat per platform)
+    "red": {
+        # Naval - use longest range ASCM
+        "Type_055": {"range_nm": 290, "type": "ascm", "color": "red", "description": "YJ-18 (290nm)"},
+        "Type_052D": {"range_nm": 290, "type": "ascm", "color": "red", "description": "YJ-18 (290nm)"},
+        "Type_052C": {"range_nm": 270, "type": "ascm", "color": "red", "description": "YJ-62 (270nm)"},
+        "Type_054A": {"range_nm": 135, "type": "ascm", "color": "red", "description": "YJ-83 (135nm)"},
+        "Type_056": {"range_nm": 40, "type": "ascm", "color": "red", "description": "YJ-83 (limited)"},
+        "Type_022": {"range_nm": 135, "type": "ascm", "color": "red", "description": "YJ-83 (135nm)"},
+        # Ground-based ADA - longest range SAM
+        "HQ-9": {"range_nm": 108, "type": "sam", "color": "orange", "description": "HQ-9 (200km)"},
+        "S-400": {"range_nm": 216, "type": "sam", "color": "orange", "description": "S-400 (400km)"},
+        "HQ-16": {"range_nm": 27, "type": "sam", "color": "orange", "description": "HQ-16 (50km)"},
+        "HQ-7": {"range_nm": 8, "type": "sam", "color": "orange", "description": "HQ-7 (15km)"},
+        # Shore-based ASCM
+        "YJ-62_Coastal": {"range_nm": 270, "type": "ascm", "color": "red", "description": "YJ-62 coastal (270nm)"},
+        "YJ-12B": {"range_nm": 270, "type": "ascm", "color": "red", "description": "YJ-12B (270nm)"},
+        # Ballistic missiles
+        "DF-21D": {"range_nm": 810, "type": "asbm", "color": "darkred", "description": "DF-21D ASBM (810nm)"},
+        "DF-26": {"range_nm": 2160, "type": "asbm", "color": "darkred", "description": "DF-26 (2160nm)"},
+        # Ground fires
+        "PHL-03": {"range_nm": 81, "type": "fires", "color": "yellow", "description": "PHL-03 MLRS (150km)"},
+        "PHL-16": {"range_nm": 151, "type": "fires", "color": "yellow", "description": "PHL-16 (280km)"},
+        "PLZ-05": {"range_nm": 27, "type": "fires", "color": "yellow", "description": "PLZ-05 155mm (50km)"},
+    }
+}
+
+# Map default center (Indo-Pacific - South China Sea area)
+MAP_DEFAULT_CENTER = [15.0, 120.0]
+MAP_DEFAULT_ZOOM = 5
+
+# =============================================================================
 # DEFAULT TSS TEMPLATE
 # =============================================================================
 
@@ -245,6 +426,348 @@ def get_ammo_status_string() -> str:
         display_name = AMMO_DISPLAY_NAMES.get(ammo_type, ammo_type.replace("_", " "))
         lines.append(f"- {display_name}: {data['current']}/{data['max']} {data['unit']} ({pct:.0f}%) [{status}]")
     return "\n".join(lines)
+
+
+# =============================================================================
+# MAP HELPER FUNCTIONS
+# =============================================================================
+
+def mgrs_to_latlon(mgrs_string: str) -> tuple:
+    """Convert MGRS coordinate to lat/lon. Returns (lat, lon) or None if invalid."""
+    if not MAPS_AVAILABLE:
+        return None
+    try:
+        m = mgrs.MGRS()
+        # Clean up the MGRS string
+        mgrs_clean = mgrs_string.upper().replace(" ", "")
+        lat, lon = m.toLatLon(mgrs_clean)
+        return (lat, lon)
+    except Exception as e:
+        st.warning(f"Invalid MGRS coordinate: {mgrs_string}")
+        return None
+
+
+def latlon_to_mgrs(lat: float, lon: float) -> str:
+    """Convert lat/lon to MGRS string."""
+    if not MAPS_AVAILABLE:
+        return ""
+    try:
+        m = mgrs.MGRS()
+        return m.toMGRS(lat, lon)
+    except Exception:
+        return ""
+
+
+def parse_coordinates(coord_string: str) -> tuple:
+    """
+    Parse coordinates from various formats.
+    Returns (lat, lon) tuple or None if invalid.
+    
+    Supports:
+    - MGRS: "32S ME 5184 1489" or "32SME51841489"
+    - Lat/Lon: "15.123, 120.456" or "15.123 120.456"
+    """
+    if not coord_string:
+        return None
+    
+    coord_string = coord_string.strip()
+    
+    # Try lat/lon first (decimal degrees)
+    latlon_pattern = r'^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$'
+    match = re.match(latlon_pattern, coord_string)
+    if match:
+        try:
+            lat = float(match.group(1))
+            lon = float(match.group(2))
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return (lat, lon)
+        except ValueError:
+            pass
+    
+    # Try MGRS
+    if MAPS_AVAILABLE:
+        result = mgrs_to_latlon(coord_string)
+        if result:
+            return result
+    
+    return None
+
+
+def nm_to_meters(nm: float) -> float:
+    """Convert nautical miles to meters."""
+    return nm * 1852
+
+
+def add_map_unit(unit_id: str, name: str, lat: float, lon: float, 
+                 unit_type: str, force: str = "blue", system: str = None):
+    """Add a unit to the map."""
+    if "map_units" not in st.session_state:
+        st.session_state.map_units = {}
+    
+    st.session_state.map_units[unit_id] = {
+        "name": name,
+        "lat": lat,
+        "lon": lon,
+        "type": unit_type,
+        "force": force,  # "blue" or "red"
+        "system": system,  # For threat ring lookup
+        "mgrs": latlon_to_mgrs(lat, lon) if MAPS_AVAILABLE else ""
+    }
+
+
+def remove_map_unit(unit_id: str):
+    """Remove a unit from the map."""
+    if "map_units" in st.session_state and unit_id in st.session_state.map_units:
+        del st.session_state.map_units[unit_id]
+
+
+def clear_map_units(force: str = None):
+    """Clear all map units, optionally filtered by force."""
+    if "map_units" not in st.session_state:
+        return
+    
+    if force is None:
+        st.session_state.map_units = {}
+    else:
+        st.session_state.map_units = {
+            uid: u for uid, u in st.session_state.map_units.items() 
+            if u.get("force") != force
+        }
+
+
+def get_threat_range(system: str, force: str = "red") -> dict:
+    """Get threat range info for a system."""
+    systems = THREAT_SYSTEMS.get(force, {})
+    return systems.get(system, None)
+
+
+# =============================================================================
+# DYNAMIC LOADOUT FUNCTIONS
+# =============================================================================
+
+def parse_loadout_updates(response: str) -> list:
+    """
+    Parse loadout updates from assistant response.
+    Returns list of updates: [{"action": "set/add/clear", "ammo_type": str, "quantity": int}]
+    """
+    updates = []
+    
+    # Pattern for setting specific ammo counts
+    # [LOADOUT_UPDATE] TYPE: GMLRS SET: 108 [/LOADOUT_UPDATE]
+    pattern_set = r'\[LOADOUT_UPDATE\]\s*TYPE:\s*([^\n]+?)\s*SET:\s*(\d+)\s*\[/LOADOUT_UPDATE\]'
+    for item, amount in re.findall(pattern_set, response, re.IGNORECASE):
+        ammo_type = resolve_ammo_type(item.strip())
+        if ammo_type:
+            updates.append({"action": "set", "ammo_type": ammo_type, "quantity": int(amount)})
+    
+    # Pattern for adding to ammo counts
+    # [LOADOUT_UPDATE] TYPE: VLS_Cells ADD: 96 [/LOADOUT_UPDATE]
+    pattern_add = r'\[LOADOUT_UPDATE\]\s*TYPE:\s*([^\n]+?)\s*ADD:\s*(\d+)\s*\[/LOADOUT_UPDATE\]'
+    for item, amount in re.findall(pattern_add, response, re.IGNORECASE):
+        ammo_type = resolve_ammo_type(item.strip())
+        if ammo_type:
+            updates.append({"action": "add", "ammo_type": ammo_type, "quantity": int(amount)})
+    
+    # Pattern for platform-based loadout
+    # [LOADOUT_UPDATE] PLATFORM: DDG_FLT_IIA COUNT: 2 [/LOADOUT_UPDATE]
+    pattern_platform = r'\[LOADOUT_UPDATE\]\s*PLATFORM:\s*([^\n]+?)\s*COUNT:\s*(\d+)\s*\[/LOADOUT_UPDATE\]'
+    for platform, count in re.findall(pattern_platform, response, re.IGNORECASE):
+        platform_key = resolve_platform_type(platform.strip())
+        if platform_key and platform_key in NAVAL_PLATFORM_LOADOUTS:
+            loadout = NAVAL_PLATFORM_LOADOUTS[platform_key]
+            for ammo_type, qty in loadout["ammo"].items():
+                updates.append({"action": "add", "ammo_type": ammo_type, "quantity": qty * int(count)})
+    
+    # Pattern for ground unit loadout
+    # [LOADOUT_UPDATE] UNIT: HIMARS_BTY COUNT: 1 [/LOADOUT_UPDATE]
+    pattern_unit = r'\[LOADOUT_UPDATE\]\s*UNIT:\s*([^\n]+?)\s*COUNT:\s*(\d+)\s*\[/LOADOUT_UPDATE\]'
+    for unit, count in re.findall(pattern_unit, response, re.IGNORECASE):
+        unit_key = unit.strip().upper().replace(" ", "_").replace("-", "_")
+        if unit_key in GROUND_UNIT_LOADOUTS:
+            loadout = GROUND_UNIT_LOADOUTS[unit_key]
+            for ammo_type, qty in loadout["ammo"].items():
+                updates.append({"action": "add", "ammo_type": ammo_type, "quantity": qty * int(count)})
+    
+    # Pattern for clearing loadout
+    # [LOADOUT_UPDATE] CLEAR: ALL [/LOADOUT_UPDATE]
+    if re.search(r'\[LOADOUT_UPDATE\]\s*CLEAR:\s*ALL\s*\[/LOADOUT_UPDATE\]', response, re.IGNORECASE):
+        updates.append({"action": "clear", "ammo_type": None, "quantity": 0})
+    
+    return updates
+
+
+def resolve_platform_type(platform: str) -> str:
+    """Resolve platform name to standard key."""
+    platform_lower = platform.lower().strip()
+    if platform_lower in PLATFORM_ALIASES:
+        return PLATFORM_ALIASES[platform_lower]
+    # Try direct match
+    platform_upper = platform.upper().replace(" ", "_").replace("-", "_")
+    if platform_upper in NAVAL_PLATFORM_LOADOUTS:
+        return platform_upper
+    return None
+
+
+def apply_loadout_updates(updates: list):
+    """Apply loadout updates to session state."""
+    for update in updates:
+        action = update["action"]
+        ammo_type = update["ammo_type"]
+        quantity = update["quantity"]
+        
+        if action == "clear":
+            # Clear all ammo
+            for key in st.session_state.ammo:
+                st.session_state.ammo[key]["current"] = 0
+                st.session_state.ammo[key]["max"] = 0
+        elif action == "set":
+            if ammo_type in st.session_state.ammo:
+                st.session_state.ammo[ammo_type]["current"] = quantity
+                st.session_state.ammo[ammo_type]["max"] = quantity
+            else:
+                # Add new ammo type
+                st.session_state.ammo[ammo_type] = {
+                    "current": quantity,
+                    "max": quantity,
+                    "unit": "rounds"
+                }
+        elif action == "add":
+            if ammo_type in st.session_state.ammo:
+                st.session_state.ammo[ammo_type]["current"] += quantity
+                st.session_state.ammo[ammo_type]["max"] += quantity
+            else:
+                st.session_state.ammo[ammo_type] = {
+                    "current": quantity,
+                    "max": quantity,
+                    "unit": "rounds"
+                }
+    
+    # Update loadout name
+    if updates:
+        st.session_state.current_loadout = "Custom (from chat)"
+
+
+def parse_map_updates(response: str) -> list:
+    """
+    Parse map unit updates from assistant response.
+    Returns list of map updates.
+    """
+    updates = []
+    
+    # Pattern for adding map units
+    # [MAP_UPDATE] ACTION: ADD NAME: "Enemy SAM" COORD: 32SME51841489 FORCE: red SYSTEM: HQ-9 [/MAP_UPDATE]
+    pattern = r'\[MAP_UPDATE\]\s*ACTION:\s*ADD\s+NAME:\s*"([^"]+)"\s+COORD:\s*(\S+)\s+FORCE:\s*(\w+)\s+SYSTEM:\s*(\S+)\s*\[/MAP_UPDATE\]'
+    for name, coord, force, system in re.findall(pattern, response, re.IGNORECASE):
+        coords = parse_coordinates(coord)
+        if coords:
+            updates.append({
+                "action": "add",
+                "name": name,
+                "lat": coords[0],
+                "lon": coords[1],
+                "force": force.lower(),
+                "system": system
+            })
+    
+    # Pattern for removing map units
+    # [MAP_UPDATE] ACTION: REMOVE NAME: "Enemy SAM" [/MAP_UPDATE]
+    pattern_remove = r'\[MAP_UPDATE\]\s*ACTION:\s*REMOVE\s+NAME:\s*"([^"]+)"\s*\[/MAP_UPDATE\]'
+    for name in re.findall(pattern_remove, response, re.IGNORECASE):
+        updates.append({"action": "remove", "name": name})
+    
+    # Pattern for clearing map
+    # [MAP_UPDATE] ACTION: CLEAR FORCE: red [/MAP_UPDATE]
+    pattern_clear = r'\[MAP_UPDATE\]\s*ACTION:\s*CLEAR\s+FORCE:\s*(\w+)\s*\[/MAP_UPDATE\]'
+    for force in re.findall(pattern_clear, response, re.IGNORECASE):
+        updates.append({"action": "clear", "force": force.lower()})
+    
+    return updates
+
+
+def apply_map_updates(updates: list):
+    """Apply map updates to session state."""
+    for update in updates:
+        action = update["action"]
+        
+        if action == "add":
+            unit_id = f"{update['name']}_{update['lat']:.4f}_{update['lon']:.4f}"
+            add_map_unit(
+                unit_id=unit_id,
+                name=update["name"],
+                lat=update["lat"],
+                lon=update["lon"],
+                unit_type=update.get("system", "unknown"),
+                force=update.get("force", "blue"),
+                system=update.get("system")
+            )
+        elif action == "remove":
+            # Find and remove by name
+            if "map_units" in st.session_state:
+                to_remove = [uid for uid, u in st.session_state.map_units.items() 
+                           if u["name"] == update["name"]]
+                for uid in to_remove:
+                    remove_map_unit(uid)
+        elif action == "clear":
+            clear_map_units(update.get("force"))
+
+
+def create_map() -> 'folium.Map':
+    """Create a folium map with all plotted units and threat rings."""
+    if not MAPS_AVAILABLE:
+        return None
+    
+    # Initialize map centered on Indo-Pacific
+    m = folium.Map(
+        location=MAP_DEFAULT_CENTER,
+        zoom_start=MAP_DEFAULT_ZOOM,
+        tiles="OpenStreetMap"
+    )
+    
+    # Get map units
+    map_units = st.session_state.get("map_units", {})
+    
+    # Color mapping
+    force_colors = {
+        "blue": "blue",
+        "red": "red",
+    }
+    
+    # Add units and threat rings
+    for unit_id, unit in map_units.items():
+        lat, lon = unit["lat"], unit["lon"]
+        force = unit.get("force", "blue")
+        system = unit.get("system")
+        name = unit.get("name", "Unknown")
+        
+        # Marker color based on force
+        marker_color = force_colors.get(force, "gray")
+        
+        # Create marker
+        popup_text = f"<b>{name}</b><br>System: {system}<br>MGRS: {unit.get('mgrs', 'N/A')}"
+        
+        folium.Marker(
+            location=[lat, lon],
+            popup=folium.Popup(popup_text, max_width=200),
+            icon=folium.Icon(color=marker_color, icon="info-sign")
+        ).add_to(m)
+        
+        # Add threat ring if system has range data
+        if system:
+            threat_data = get_threat_range(system, force)
+            if threat_data:
+                range_meters = nm_to_meters(threat_data["range_nm"])
+                ring_color = threat_data.get("color", marker_color)
+                
+                folium.Circle(
+                    location=[lat, lon],
+                    radius=range_meters,
+                    color=ring_color,
+                    fill=True,
+                    fillOpacity=0.1,
+                    popup=f"{name}: {threat_data['description']}"
+                ).add_to(m)
+    
+    return m
 
 
 def get_hptl_tss_context() -> str:
@@ -1072,6 +1595,10 @@ def init_session_state():
         st.session_state.opord_data = None
     if "adversary" not in st.session_state:
         st.session_state.adversary = "Olvana (Chinese-type)"
+    if "map_units" not in st.session_state:
+        st.session_state.map_units = {}
+    if "show_map" not in st.session_state:
+        st.session_state.show_map = False
 
 
 # =============================================================================
@@ -1575,14 +2102,114 @@ def render_chat():
                 response = get_assistant_response(prompt)
                 st.markdown(response)
         
-        updates = parse_ammo_updates(response)
-        if updates:
-            apply_ammo_updates(updates)
+        # Parse all update types
+        ammo_updates = parse_ammo_updates(response)
+        loadout_updates = parse_loadout_updates(response)
+        map_updates = parse_map_updates(response)
+        
+        # Apply updates
+        if ammo_updates:
+            apply_ammo_updates(ammo_updates)
+        if loadout_updates:
+            apply_loadout_updates(loadout_updates)
+        if map_updates:
+            apply_map_updates(map_updates)
         
         st.session_state.messages.append({"role": "assistant", "content": response})
         
-        if updates:
+        # Rerun if any updates were made
+        if ammo_updates or loadout_updates or map_updates:
             st.rerun()
+
+
+def render_map_section():
+    """Render the interactive map section."""
+    if not MAPS_AVAILABLE:
+        st.warning("Map functionality requires folium and mgrs libraries. Install with: pip install folium streamlit-folium mgrs")
+        return
+    
+    st.markdown("### 🗺️ Operational Map")
+    
+    # Map controls
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        # Quick add unit form
+        with st.expander("➕ Add Unit", expanded=False):
+            unit_name = st.text_input("Unit Name", key="map_unit_name", placeholder="e.g., Enemy SAM Site 1")
+            coord_input = st.text_input("Coordinates (MGRS or Lat,Lon)", key="map_coord", placeholder="32SME51841489 or 15.5, 120.3")
+            force_select = st.selectbox("Force", ["red", "blue"], key="map_force")
+            
+            # System selection based on force
+            if force_select == "red":
+                systems = list(THREAT_SYSTEMS["red"].keys())
+            else:
+                systems = list(THREAT_SYSTEMS["blue"].keys())
+            system_select = st.selectbox("System Type", systems, key="map_system")
+            
+            if st.button("Add to Map", key="add_map_unit"):
+                if unit_name and coord_input:
+                    coords = parse_coordinates(coord_input)
+                    if coords:
+                        unit_id = f"{unit_name}_{coords[0]:.4f}_{coords[1]:.4f}"
+                        add_map_unit(unit_id, unit_name, coords[0], coords[1], 
+                                   system_select, force_select, system_select)
+                        st.success(f"Added {unit_name}")
+                        st.rerun()
+                    else:
+                        st.error("Invalid coordinates")
+                else:
+                    st.warning("Enter unit name and coordinates")
+    
+    with col2:
+        # Show current units
+        with st.expander("📍 Plotted Units", expanded=False):
+            map_units = st.session_state.get("map_units", {})
+            if map_units:
+                for uid, unit in map_units.items():
+                    col_a, col_b = st.columns([3, 1])
+                    with col_a:
+                        force_icon = "🔵" if unit["force"] == "blue" else "🔴"
+                        st.markdown(f"{force_icon} **{unit['name']}** ({unit['system']})")
+                    with col_b:
+                        if st.button("❌", key=f"del_{uid}"):
+                            remove_map_unit(uid)
+                            st.rerun()
+            else:
+                st.caption("No units plotted")
+    
+    with col3:
+        if st.button("🗑️ Clear All", key="clear_map"):
+            clear_map_units()
+            st.rerun()
+        
+        if st.button("🔴 Clear Red", key="clear_red"):
+            clear_map_units("red")
+            st.rerun()
+        
+        if st.button("🔵 Clear Blue", key="clear_blue"):
+            clear_map_units("blue")
+            st.rerun()
+    
+    # Render the map
+    map_obj = create_map()
+    if map_obj:
+        st_folium(map_obj, width=700, height=500)
+    
+    # Legend
+    with st.expander("📖 Map Legend"):
+        st.markdown("""
+        **Threat Rings by Color:**
+        - 🔴 **Red** - Anti-ship missiles (ASCM)
+        - 🟠 **Orange** - Air defense (SAM)
+        - 🟡 **Yellow** - Ground fires (Artillery/MLRS)
+        - 🔵 **Blue** - Friendly weapon systems
+        - 🟤 **Dark Red** - Ballistic missiles (ASBM)
+        
+        **Coordinates:**
+        - Enter MGRS: `32SME51841489` or `32S ME 5184 1489`
+        - Enter Lat/Lon: `15.5, 120.3`
+        """)
 
 
 def get_assistant_response(user_message: str) -> str:
@@ -1663,42 +2290,59 @@ def main():
     
     render_sidebar()
     
-    if not st.session_state.messages:
-        adv = st.session_state.adversary
-        st.markdown(f"""
-        **Welcome to the Fires Coordinator Agent v4.**
-        
-        **Current Setup:**
-        - Loadout: {st.session_state.current_loadout}
-        - Adversary: {adv}
-        - HPTL/TSS: {"Loaded" if st.session_state.hptl_data else "Not loaded"}
-        - Target List: {len(st.session_state.tlws_data)} targets
-        - EDL: {"Loaded" if st.session_state.edl_data else "Not loaded"}
-        
-        **Capabilities:**
-        - 🎯 Weapons-target matching with TSS integration
-        - 📊 Salvo calculations (Pk-based weaponeering)
-        - ⚓ Naval engagement analysis (Hughes Salvo Model)
-        - 🚁 OPF-M Hero-120 employment (20km std / 60km extended)
-        - 📄 AGM/TSS/HPTL Matrix parsing & creation
-        - 🎯 Target List Worksheet management
-        - 📦 Equipment Density List parsing
-        
-        **To get started:**
-        1. Upload your AGM/TSS/HPTL, TLWS, or EDL from the sidebar
-        2. Select your adversary type
-        3. Choose a mission loadout
-        4. Ask fires planning questions!
-        
-        **Example queries:**
-        - *"What are my HPTL priorities?"*
-        - *"Recommend fires against a 2S19 battery at 35km"*
-        - *"Add target AO0025: T-90 platoon at 18S TJ 550 100"*
-        - *"Analyze engagement: 2 DDGs vs Type 054A SAG"*
-        ---
-        """)
+    # Main content tabs
+    main_tab1, main_tab2 = st.tabs(["💬 Chat", "🗺️ Map"])
     
-    render_chat()
+    with main_tab1:
+        if not st.session_state.messages:
+            adv = st.session_state.adversary
+            st.markdown(f"""
+            **Welcome to the Fires Coordinator Agent v8.**
+            
+            **Current Setup:**
+            - Loadout: {st.session_state.current_loadout}
+            - Adversary: {adv}
+            - HPTL/TSS: {"Loaded" if st.session_state.hptl_data else "Not loaded"}
+            - Target List: {len(st.session_state.tlws_data)} targets
+            - EDL: {"Loaded" if st.session_state.edl_data else "Not loaded"}
+            - Map Units: {len(st.session_state.get('map_units', {}))} plotted
+            
+            **Capabilities:**
+            - 🎯 Weapons-target matching with TSS integration
+            - 📊 Salvo calculations (Pk-based weaponeering)
+            - ⚓ Naval engagement analysis (Hughes Salvo Model)
+            - 🚁 OPF-M Hero-120 employment (20km std / 60km extended)
+            - 📄 Document parsing (OPORD, AGM/TSS/HPTL, TLWS, EDL)
+            - 📦 **Dynamic loadouts** - describe your task org and ammo updates automatically
+            - 🗺️ **Interactive map** - plot units with threat rings
+            
+            **NEW in v8 - Dynamic Loadouts:**
+            - *"We have a SAG with 2x DDG FLT IIA and 1x CG"* → sidebar updates
+            - *"Add a HIMARS battery"* → adds to existing loadout
+            - *"Our Excalibur allocation is 50 rounds"* → updates specific ammo
+            
+            **NEW in v8 - Map Visualization:**
+            - *"Plot an HQ-9 site at 32S ME 5184 1489"* → adds to map with threat ring
+            - Use the Map tab to manually add/remove units
+            - View threat rings showing weapon ranges
+            
+            **To get started:**
+            1. Upload your OPORD/Annex, AGM/TSS/HPTL, TLWS, or EDL from the sidebar
+            2. Describe your task organization (SAG composition, ground units)
+            3. Ask fires planning questions!
+            
+            **Example queries:**
+            - *"Our SAG has 2 DDGs and an FFG - what's our loadout?"*
+            - *"Recommend fires against a Type 055 at 150nm"*
+            - *"Analyze engagement: 3 DDGs vs 2 Type 052D"*
+            - *"Plot enemy S-400 at 15.5, 121.3"*
+            ---
+            """)
+        
+        render_chat()
+    
+    with main_tab2:
+        render_map_section()
 
 
 if __name__ == "__main__":

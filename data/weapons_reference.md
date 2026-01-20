@@ -740,8 +740,8 @@ represents PLANNING ESTIMATES derived from unclassified sources.
 
 | Ship Class | y (Defensive Power) | Simultaneous Engagements | Notes |
 |------------|---------------------|--------------------------|-------|
-| Type 055 | 10-14 | 8-12 | Most capable; AESA, 112 VLS |
-| Type 052D | 8-10 | 6-8 | Dragon Eye radar |
+| Type 055 | 8-12 | 8-12 | Most capable; AESA, 112 VLS |
+| Type 052D | 6-8 | 6-8 | Dragon Eye radar |
 | Type 052C | 6-8 | 4-6 | Older AESA |
 | Type 054A | 4-6 | 2-4 | HQ-16 limited |
 | Type 056 | 1-2 | 1 | Point defense only |

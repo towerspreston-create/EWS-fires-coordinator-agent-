@@ -46,7 +46,17 @@ The Hughes Salvo Model, developed by Captain Wayne P. Hughes Jr., USN (Ret.), pr
 | b | b₁ | Red staying power | Hits to mission-kill |
 | ΔA | ΔA | Blue casualties | Ships mission-killed |
 | ΔB | ΔB | Red casualties | Ships mission-killed |
+### ⚠️ CRITICAL: Using α/β and σ Correctly
 
+**α and β represent RAW missile counts per ship.** Targeting effectiveness (σ) is applied separately in the equation.
+
+| Approach | Example (Type 055) | Correct? |
+|----------|-------------------|----------|
+| β = 24 (raw), σ = 0.4 | σ × β = 9.6 | ✅ YES |
+| β = 9.6 (pre-multiplied), σ = 1.0 | σ × β = 9.6 | ✅ YES |
+| β = 9.6 (pre-multiplied), σ = 0.4 | σ × β = 3.84 | ❌ DOUBLE-COUNTED |
+
+**Rule:** If using values from the "Offensive Power" column in Section 3, set σ = 1.0 (Pk already included). If using raw missile counts, apply σ separately.
 ---
 
 ## PARAMETER DEFINITIONS
@@ -59,14 +69,18 @@ Missiles fired per ship per salvo.
 ### Targeting Effectiveness (σ)
 Probability that a fired missile hits the target (Pk). Represents missile quality, targeting accuracy, and engagement conditions.
 
-| Missile/Condition | Targeting Effectiveness (σ) |
-|-------------------|----------------------------|
-| High-end PGM (LRASM) | 0.6-0.8 |
-| Modern ASCM (NSM) | 0.5-0.7 |
-| Legacy ASCM (Harpoon) | 0.4-0.6 |
-| Olvana YJ-18 (vs defended) | 0.4-0.6 |
-| Olvana YJ-83 (vs defended) | 0.3-0.5 |
-| Degraded conditions (EW, poor targeting) | 0.2-0.4 |
+| Missile/Condition | Target Type | Targeting Effectiveness (σ) |
+|-------------------|-------------|----------------------------|
+| LRASM | vs defended | 0.6-0.8 |
+| NSM | vs defended | 0.5-0.7 |
+| Harpoon | vs defended | 0.4-0.6 |
+| Harpoon | vs undefended | 0.7-0.85 |
+| YJ-18 | vs AEGIS DDG | 0.25-0.35 |
+| YJ-18 | vs FFG (less capable) | 0.40-0.50 |
+| YJ-18 | vs undefended | 0.70-0.85 |
+| YJ-83 | vs AEGIS DDG | 0.15-0.25 |
+| YJ-83 | vs FFG | 0.30-0.40 |
+| Any ASCM | Degraded conditions (EW, poor targeting) | 0.2-0.4 |
 
 ### Alertness (τ)
 Defensive readiness of the force. Represents crew readiness, early warning, and ability to employ defensive systems.
@@ -90,6 +104,7 @@ Missiles each ship can defeat through hard-kill (SAMs, CIWS) and soft-kill (deco
 | CG-47 (Aegis) | 6-10 intercepts | Larger magazine |
 | FFG-62 | 4-6 intercepts | EASR, SM-2, ESSM, RAM |
 | LCS | 1-2 intercepts | RAM/SeaRAM only |
+**Default Assumption:** When DDG-51 Flight variant is unspecified, use Flight IIA values (z = 6-10) as the most common deployed configuration.
 
 **Olvana/Red Force (y):**
 | Ship Class | Defensive Power | Notes |

@@ -94,8 +94,8 @@ Missiles each ship can defeat through hard-kill (SAMs, CIWS) and soft-kill (deco
 **Olvana/Red Force (y):**
 | Ship Class | Defensive Power | Notes |
 |------------|-----------------|-------|
-| Type 055 Cruiser | 6-10 intercepts | HQ-9, HQ-16, Type 1130 CIWS |
-| Type 052D Destroyer | 4-8 intercepts | HQ-9, Type 1130 CIWS |
+| Type 055 Cruiser | 8-12 intercepts | HQ-9, HQ-16, Type 1130 CIWS |
+| Type 052D Destroyer | 6-8 intercepts | HQ-9, Type 1130 CIWS |
 | Type 054A Frigate | 3-5 intercepts | HQ-16, Type 730 CIWS |
 | Type 056 Corvette | 1-2 intercepts | FL-3000N only |
 | Type 022 FAC | 0 intercepts | No defensive missiles/CIWS |

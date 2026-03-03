@@ -210,7 +210,7 @@ def load_reference_docs():
     weapons_ref = ""
     hughes_model = ""
 
-    weapons_path = Path("/mnt/project/weapons_reference_v2.md")
+    weapons_path = Path("/mnt/project/weapons_reference_v3.md")
     if weapons_path.exists():
         weapons_ref = weapons_path.read_text(encoding="utf-8", errors="replace")
 
